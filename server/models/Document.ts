@@ -13,7 +13,6 @@ import {
   Transaction,
   Op,
   FindOptions,
-  ScopeOptions,
   WhereOptions,
   EmptyResultError,
 } from "sequelize";
@@ -57,6 +56,7 @@ import FileOperation from "./FileOperation";
 import Group from "./Group";
 import GroupMembership from "./GroupMembership";
 import GroupUser from "./GroupUser";
+import Import from "./Import";
 import Revision from "./Revision";
 import Star from "./Star";
 import Team from "./Team";
@@ -105,20 +105,6 @@ type AdditionalFindOptions = {
   },
 }))
 @Scopes(() => ({
-  withCollectionPermissions: (userId: string, paranoid = true) => ({
-    include: [
-      {
-        attributes: ["id", "permission", "sharing", "teamId", "deletedAt"],
-        model: userId
-          ? Collection.scope({
-              method: ["withMembership", userId],
-            })
-          : Collection,
-        as: "collection",
-        paranoid,
-      },
-    ],
-  }),
   withoutState: {
     attributes: {
       exclude: ["state"],
@@ -168,13 +154,23 @@ type AdditionalFindOptions = {
       ],
     };
   },
-  withMembership: (userId: string) => {
+  withMembership: (userId: string, paranoid = true) => {
     if (!userId) {
       return {};
     }
 
     return {
       include: [
+        {
+          attributes: ["id", "permission", "sharing", "teamId", "deletedAt"],
+          model: userId
+            ? Collection.scope({
+                method: ["withMembership", userId],
+              })
+            : Collection,
+          as: "collection",
+          paranoid,
+        },
         {
           association: "memberships",
           where: {
@@ -537,6 +533,13 @@ class Document extends ArchivableModel<
   @Column(DataType.UUID)
   importId: string | null;
 
+  @BelongsTo(() => Import, "apiImportId")
+  apiImport: Import<any> | null;
+
+  @ForeignKey(() => Import)
+  @Column(DataType.UUID)
+  apiImportId: string | null;
+
   @AllowNull
   @Column(DataType.JSONB)
   sourceMetadata: SourceMetadata | null;
@@ -629,21 +632,19 @@ class Document extends ArchivableModel<
     return uniq(membershipUserIds);
   }
 
-  static defaultScopeWithUser(userId: string) {
-    const collectionScope: Readonly<ScopeOptions> = {
-      method: ["withCollectionPermissions", userId],
-    };
-    const viewScope: Readonly<ScopeOptions> = {
-      method: ["withViews", userId],
-    };
-    const membershipScope: Readonly<ScopeOptions> = {
-      method: ["withMembership", userId],
-    };
+  static withMembershipScope(
+    userId: string,
+    options?: FindOptions<Document> & { includeDrafts?: boolean }
+  ) {
     return this.scope([
-      "defaultScope",
-      collectionScope,
-      viewScope,
-      membershipScope,
+      options?.includeDrafts ? "withDrafts" : "defaultScope",
+      "withoutState",
+      {
+        method: ["withViews", userId],
+      },
+      {
+        method: ["withMembership", userId, options?.paranoid],
+      },
     ]);
   }
 
@@ -677,14 +678,12 @@ class Document extends ArchivableModel<
     // almost every endpoint needs the collection membership to determine policy permissions.
     const scope = this.scope([
       "withDrafts",
-      {
-        method: ["withCollectionPermissions", userId, rest.paranoid],
-      },
+      options.includeState ? "withState" : "withoutState",
       {
         method: ["withViews", userId],
       },
       {
-        method: ["withMembership", userId],
+        method: ["withMembership", userId, rest.paranoid],
       },
     ]);
 
@@ -742,9 +741,6 @@ class Document extends ArchivableModel<
     const user = userId ? await User.findByPk(userId) : null;
     const documents = await this.scope([
       "withDrafts",
-      {
-        method: ["withCollectionPermissions", userId, rest.paranoid],
-      },
       {
         method: ["withViews", userId],
       },
@@ -830,7 +826,9 @@ class Document extends ArchivableModel<
     }
 
     this.content = revision.content;
-    this.text = revision.text;
+    this.text = DocumentHelper.toMarkdown(revision, {
+      includeTitle: false,
+    });
     this.title = revision.title;
     this.icon = revision.icon;
     this.color = revision.color;
@@ -1102,18 +1100,26 @@ class Document extends ArchivableModel<
   // Delete a document, archived or otherwise.
   delete = (user: User) =>
     this.sequelize.transaction(async (transaction: Transaction) => {
-      if (!this.archivedAt && !this.template && this.collectionId) {
-        // delete any children and remove from the document structure
-        const collection = await Collection.findByPk(this.collectionId, {
+      let deleted = false;
+
+      if (!this.template && this.collectionId) {
+        const collection = await Collection.findByPk(this.collectionId!, {
           transaction,
           lock: transaction.LOCK.UPDATE,
           paranoid: false,
         });
-        await collection?.deleteDocument(this, { transaction });
-      } else {
+
+        if (!this.archivedAt || (this.archivedAt && collection?.archivedAt)) {
+          await collection?.deleteDocument(this, { transaction });
+          deleted = true;
+        }
+      }
+
+      if (!deleted) {
         await this.destroy({
           transaction,
         });
+        deleted = true;
       }
 
       this.lastModifiedById = user.id;

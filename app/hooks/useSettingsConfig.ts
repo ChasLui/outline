@@ -8,12 +8,12 @@ import {
   GlobeIcon,
   TeamIcon,
   BeakerIcon,
-  BuildingBlocksIcon,
   SettingsIcon,
   ExportIcon,
   ImportIcon,
   ShapesIcon,
   Icon,
+  InternetIcon,
 } from "outline-icons";
 import React, { ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
@@ -29,7 +29,8 @@ import useCurrentUser from "./useCurrentUser";
 import usePolicy from "./usePolicy";
 
 const ApiKeys = lazy(() => import("~/scenes/Settings/ApiKeys"));
-const PersonalApiKeys = lazy(() => import("~/scenes/Settings/PersonalApiKeys"));
+const Applications = lazy(() => import("~/scenes/Settings/Applications"));
+const APIAndApps = lazy(() => import("~/scenes/Settings/APIAndApps"));
 const Details = lazy(() => import("~/scenes/Settings/Details"));
 const Export = lazy(() => import("~/scenes/Settings/Export"));
 const Features = lazy(() => import("~/scenes/Settings/Features"));
@@ -40,7 +41,6 @@ const Notifications = lazy(() => import("~/scenes/Settings/Notifications"));
 const Preferences = lazy(() => import("~/scenes/Settings/Preferences"));
 const Profile = lazy(() => import("~/scenes/Settings/Profile"));
 const Security = lazy(() => import("~/scenes/Settings/Security"));
-const SelfHosted = lazy(() => import("~/scenes/Settings/SelfHosted"));
 const Shares = lazy(() => import("~/scenes/Settings/Shares"));
 const Templates = lazy(() => import("~/scenes/Settings/Templates"));
 const Zapier = lazy(() => import("~/scenes/Settings/Zapier"));
@@ -88,12 +88,12 @@ const useSettingsConfig = () => {
         icon: EmailIcon,
       },
       {
-        name: t("API Keys"),
-        path: settingsPath("personal-api-keys"),
-        component: PersonalApiKeys,
-        enabled: can.createApiKey && !can.listApiKeys,
+        name: t("API & Apps"),
+        path: settingsPath("api-and-apps"),
+        component: APIAndApps,
+        enabled: true,
         group: t("Account"),
-        icon: CodeIcon,
+        icon: PadlockIcon,
       },
       // Workspace
       {
@@ -153,6 +153,14 @@ const useSettingsConfig = () => {
         icon: CodeIcon,
       },
       {
+        name: t("Applications"),
+        path: settingsPath("applications"),
+        component: Applications,
+        enabled: can.listOAuthClients,
+        group: t("Workspace"),
+        icon: InternetIcon,
+      },
+      {
         name: t("Shared Links"),
         path: settingsPath("shares"),
         component: Shares,
@@ -177,14 +185,6 @@ const useSettingsConfig = () => {
         icon: ExportIcon,
       },
       // Integrations
-      {
-        name: t("Self Hosted"),
-        path: integrationSettingsPath("self-hosted"),
-        component: SelfHosted,
-        enabled: can.update && !isCloudHosted,
-        group: t("Integrations"),
-        icon: BuildingBlocksIcon,
-      },
       {
         name: "Zapier",
         path: integrationSettingsPath("zapier"),
